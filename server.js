@@ -5,28 +5,16 @@ import { URL } from 'url'
 import zlib from 'zlib'
 
 const app = express()
-
-// Parser defensivo — aceita qualquer Content-Type como JSON
-app.use((req, res, next) => {
-  let data = ''
-  req.on('data', chunk => { data += chunk })
-  req.on('end', () => {
-    if (data) {
-      try {
-        req.body = JSON.parse(data)
-      } catch {
-        req.body = {}
-      }
-    } else {
-      req.body = {}
-    }
-    next()
-  })
-})
+app.use(express.json({ limit: '10mb' }))
+app.use(express.text({ type: '*/*', limit: '10mb' }))
 
 const TOKEN = process.env.INTERNAL_TOKEN
 
 app.use((req, res, next) => {
+  // Se body chegou como string, tenta parsear como JSON
+  if (typeof req.body === 'string') {
+    try { req.body = JSON.parse(req.body) } catch {}
+  }
   if (req.headers['x-internal-token'] !== TOKEN) {
     return res.status(401).json({ error: 'Não autorizado' })
   }
@@ -56,6 +44,7 @@ function httpsRequest(urlStr, { method = 'GET', headers = {}, body, pfx_base64, 
       port: u.port || 443,
       path: u.pathname + u.search,
       method,
+      servername: u.hostname,
       headers: {
         ...headers,
         ...(bodyBuffer ? { 'Content-Length': bodyBuffer.length } : {}),
@@ -85,11 +74,10 @@ function httpsRequest(urlStr, { method = 'GET', headers = {}, body, pfx_base64, 
 // POST /dps → gzip+base64 → JSON → POST /SefinNacional/nfse
 app.post('/dps', async (req, res) => {
   console.log('=== POST /dps ===')
-  console.log('headers:', JSON.stringify(req.headers))
-  console.log('body recebido:', JSON.stringify(req.body))
+  console.log('content-type:', req.headers['content-type'])
+  console.log('body type:', typeof req.body)
   console.log('campos:', Object.keys(req.body || {}))
 
-  // Aceita qualquer variante de nome de campo com o XML
   const xml_dps =
     req.body.xml_dps ||
     req.body.dps ||
@@ -98,7 +86,6 @@ app.post('/dps', async (req, res) => {
     req.body.dps_xml ||
     null
 
-  // Aceita XML já em gzip+base64 ou XML cru
   const ja_comprimido =
     req.body.dpsXmlGZipB64 ||
     req.body.dps_xml_gzip_b64 ||
@@ -112,14 +99,13 @@ app.post('/dps', async (req, res) => {
     return res.status(400).json({
       error: 'Nenhum campo XML encontrado',
       campos_recebidos: Object.keys(req.body || {}),
-      dica: 'Envie xml_dps (XML cru) ou dpsXmlGZipB64 (já comprimido)'
     })
   }
 
   if (!pfx_base64) {
     return res.status(400).json({
-      error: 'Campo pfx_base64 não recebido',
-      campos_recebidos: Object.keys(req.body || {})
+      error: 'pfx_base64 não recebido',
+      campos_recebidos: Object.keys(req.body || {}),
     })
   }
 
@@ -177,9 +163,6 @@ app.get('/nfse/:chave', async (req, res) => {
 
 // POST /evento → gzip+base64 → JSON → POST /SefinNacional/nfse/{chave}/eventos
 app.post('/evento', async (req, res) => {
-  console.log('=== POST /evento ===')
-  console.log('body recebido:', JSON.stringify(req.body))
-
   const xml_evento =
     req.body.xml_evento ||
     req.body.evento ||
@@ -196,7 +179,7 @@ app.post('/evento', async (req, res) => {
   if (!xml_evento && !ja_comprimido) {
     return res.status(400).json({
       error: 'Nenhum campo XML de evento encontrado',
-      campos_recebidos: Object.keys(req.body || {})
+      campos_recebidos: Object.keys(req.body || {}),
     })
   }
 
