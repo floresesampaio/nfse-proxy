@@ -17,10 +17,12 @@ app.use((req, res, next) => {
 
 app.get('/health', (_req, res) => res.json({ ok: true }))
 
-function baseUrl(ambiente) {
-  return ambiente === 'producao'
-    ? 'https://sefin.nfse.gov.br/SefinNacional'
-    : 'https://sefin.producaorestrita.nfse.gov.br/SefinNacional'
+function getBaseUrl(body_or_query) {
+  // Permite URL customizada por município ou usa a nacional
+  if (body_or_query.base_url) return body_or_query.base_url
+  return body_or_query.ambiente === 'producao'
+    ? 'https://sefin.nfse.gov.br'
+    : 'https://sefin.producaorestrita.nfse.gov.br'
 }
 
 function httpsRequest(urlStr, { method = 'GET', headers = {}, body, pfx_base64, pfx_senha }) {
@@ -48,16 +50,17 @@ function httpsRequest(urlStr, { method = 'GET', headers = {}, body, pfx_base64, 
     })
 
     req.on('error', reject)
-    if (body) req.write(body)
+    if (body) req.write(typeof body === 'string' ? body : body)
     req.end()
   })
 }
 
-// Enviar DPS
+// POST /dps — envia DPS assinada → POST /sefinNacional/nfse
 app.post('/dps', async (req, res) => {
-  const { xml_dps, pfx_base64, pfx_senha, ambiente } = req.body
+  const { xml_dps, pfx_base64, pfx_senha } = req.body
+  const base = getBaseUrl(req.body)
   try {
-    const r = await httpsRequest(`${baseUrl(ambiente)}/nfse/dps`, {
+    const r = await httpsRequest(`${base}/sefinNacional/nfse`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/xml' },
       body: xml_dps,
@@ -70,11 +73,13 @@ app.post('/dps', async (req, res) => {
   }
 })
 
-// Consultar DPS
+// GET /dps/:idDPS — consulta DPS → GET /sefinNacional/dps/{id}
 app.get('/dps/:idDPS', async (req, res) => {
-  const { pfx_base64, pfx_senha, ambiente } = req.query
+  const { pfx_base64, pfx_senha } = req.query
+  const base = getBaseUrl(req.query)
   try {
-    const r = await httpsRequest(`${baseUrl(ambiente)}/nfse/dps/${req.params.idDPS}`, {
+    const r = await httpsRequest(`${base}/sefinNacional/dps/${req.params.idDPS}`, {
+      method: 'GET',
       pfx_base64,
       pfx_senha,
     })
@@ -84,11 +89,13 @@ app.get('/dps/:idDPS', async (req, res) => {
   }
 })
 
-// Consultar NFS-e
+// GET /nfse/:chave — consulta NFS-e → GET /sefinNacional/nfse/{chave}
 app.get('/nfse/:chave', async (req, res) => {
-  const { pfx_base64, pfx_senha, ambiente } = req.query
+  const { pfx_base64, pfx_senha } = req.query
+  const base = getBaseUrl(req.query)
   try {
-    const r = await httpsRequest(`${baseUrl(ambiente)}/nfse/${req.params.chave}`, {
+    const r = await httpsRequest(`${base}/sefinNacional/nfse/${req.params.chave}`, {
+      method: 'GET',
       pfx_base64,
       pfx_senha,
     })
@@ -98,11 +105,29 @@ app.get('/nfse/:chave', async (req, res) => {
   }
 })
 
-// Cancelamento / eventos
-app.post('/evento', async (req, res) => {
-  const { xml_evento, pfx_base64, pfx_senha, ambiente } = req.body
+// GET /danfse/:chave — PDF → GET /sefinNacional/nfse/{chave}/danfse
+app.get('/danfse/:chave', async (req, res) => {
+  const { pfx_base64, pfx_senha } = req.query
+  const base = getBaseUrl(req.query)
   try {
-    const r = await httpsRequest(`${baseUrl(ambiente)}/nfse/evento`, {
+    const r = await httpsRequest(`${base}/sefinNacional/nfse/${req.params.chave}/danfse`, {
+      method: 'GET',
+      headers: { 'Accept': 'application/pdf' },
+      pfx_base64,
+      pfx_senha,
+    })
+    res.status(r.status).type('application/pdf').send(r.body)
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+// POST /evento — cancelamento → POST /sefinNacional/nfse/{chave}/eventos
+app.post('/evento', async (req, res) => {
+  const { xml_evento, chave_acesso, pfx_base64, pfx_senha } = req.body
+  const base = getBaseUrl(req.body)
+  try {
+    const r = await httpsRequest(`${base}/sefinNacional/nfse/${chave_acesso}/eventos`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/xml' },
       body: xml_evento,
@@ -110,20 +135,6 @@ app.post('/evento', async (req, res) => {
       pfx_senha,
     })
     res.status(r.status).send(r.body)
-  } catch (e) {
-    res.status(500).json({ error: e.message })
-  }
-})
-
-// DANFSE / PDF
-app.get('/danfse/:chave', async (req, res) => {
-  const { pfx_base64, pfx_senha, ambiente } = req.query
-  try {
-    const r = await httpsRequest(`${baseUrl(ambiente)}/danfse/${req.params.chave}`, {
-      pfx_base64,
-      pfx_senha,
-    })
-    res.status(r.status).type('application/pdf').send(r.body)
   } catch (e) {
     res.status(500).json({ error: e.message })
   }
