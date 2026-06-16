@@ -15,7 +15,7 @@ app.use((req, res, next) => {
   next()
 })
 
-app.get('/health', (req, res) => res.json({ ok: true }))
+app.get('/health', (_req, res) => res.json({ ok: true }))
 
 function buildAgent(pfxBase64, senha) {
   return new https.Agent({
@@ -89,13 +89,15 @@ app.post('/evento', async (req, res) => {
   }
 })
 
-// DANFSE
+// DANFSE / PDF
 app.get('/danfse/:chave', async (req, res) => {
   const { pfx_base64, pfx_senha, ambiente } = req.query
   try {
     const agent = buildAgent(pfx_base64, pfx_senha)
     const r = await fetch(`${baseUrl(ambiente)}/danfse/${req.params.chave}`, { agent })
-    res.status(r.status).type('application/pdf').send(Buffer.from(await r.arrayBuffer()))
+    res.status(r.status)
+      .type('application/pdf')
+      .send(Buffer.from(await r.arrayBuffer()))
   } catch (e) {
     res.status(500).json({ error: e.message })
   }
