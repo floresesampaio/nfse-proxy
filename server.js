@@ -2,6 +2,7 @@ import 'dotenv/config'
 import express from 'express'
 import https from 'https'
 import { URL } from 'url'
+import zlib from 'zlib'
 
 const app = express()
 app.use(express.json({ limit: '10mb' }))
@@ -20,7 +21,11 @@ app.get('/health', (_req, res) => res.json({ ok: true }))
 function getBase(ambiente) {
   return ambiente === 'producao'
     ? 'https://sefin.nfse.gov.br/SefinNacional'
-    : 'https://sefin.producaorestrita.nfse.gov.br/SefinNacional'
+    : 'https://hom.nfse.gov.br/SefinNacional'
+}
+
+function xmlToGzipB64(xml) {
+  return zlib.gzipSync(Buffer.from(xml, 'utf8')).toString('base64')
 }
 
 function httpsRequest(urlStr, { method = 'GET', headers = {}, body, pfx_base64, pfx_senha }) {
@@ -60,17 +65,20 @@ function httpsRequest(urlStr, { method = 'GET', headers = {}, body, pfx_base64, 
   })
 }
 
-// POST /dps → POST /SefinNacional/nfse
+// POST /dps → gzip+base64 → JSON → POST /SefinNacional/nfse
 app.post('/dps', async (req, res) => {
   const { xml_dps, pfx_base64, pfx_senha, ambiente } = req.body
   try {
+    const dpsXmlGZipB64 = xmlToGzipB64(xml_dps)
+    const body = JSON.stringify({ dpsXmlGZipB64 })
+
     const r = await httpsRequest(`${getBase(ambiente)}/nfse`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/xml',
-        'Accept': 'application/xml',
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
       },
-      body: xml_dps,
+      body,
       pfx_base64,
       pfx_senha,
     })
@@ -86,7 +94,7 @@ app.get('/dps/:idDPS', async (req, res) => {
   try {
     const r = await httpsRequest(`${getBase(ambiente)}/sdps/${req.params.idDPS}`, {
       method: 'GET',
-      headers: { 'Accept': 'application/xml' },
+      headers: { 'Accept': 'application/json' },
       pfx_base64,
       pfx_senha,
     })
@@ -102,7 +110,7 @@ app.get('/nfse/:chave', async (req, res) => {
   try {
     const r = await httpsRequest(`${getBase(ambiente)}/nfse/${req.params.chave}`, {
       method: 'GET',
-      headers: { 'Accept': 'application/xml' },
+      headers: { 'Accept': 'application/json' },
       pfx_base64,
       pfx_senha,
     })
@@ -112,17 +120,20 @@ app.get('/nfse/:chave', async (req, res) => {
   }
 })
 
-// POST /evento → POST /SefinNacional/nfse/{chave}/eventos
+// POST /evento → gzip+base64 → JSON → POST /SefinNacional/nfse/{chave}/eventos
 app.post('/evento', async (req, res) => {
   const { xml_evento, chave_acesso, pfx_base64, pfx_senha, ambiente } = req.body
   try {
+    const eventoXmlGZipB64 = xmlToGzipB64(xml_evento)
+    const body = JSON.stringify({ eventoXmlGZipB64 })
+
     const r = await httpsRequest(`${getBase(ambiente)}/nfse/${chave_acesso}/eventos`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/xml',
-        'Accept': 'application/xml',
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
       },
-      body: xml_evento,
+      body,
       pfx_base64,
       pfx_senha,
     })
