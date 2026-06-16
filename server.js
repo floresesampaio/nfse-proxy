@@ -20,21 +20,29 @@ app.get('/health', (_req, res) => res.json({ ok: true }))
 function getBase(ambiente) {
   return ambiente === 'producao'
     ? 'https://sefin.nfse.gov.br/SefinNacional'
-    : 'https://hom.nfse.gov.br/SefinNacional'
+    : 'https://sefin.producaorestrita.nfse.gov.br/SefinNacional'
 }
 
 function httpsRequest(urlStr, { method = 'GET', headers = {}, body, pfx_base64, pfx_senha }) {
   return new Promise((resolve, reject) => {
     const u = new URL(urlStr)
+    const pfxBuffer = Buffer.from(pfx_base64, 'base64')
+    const bodyBuffer = body ? Buffer.from(body, 'utf8') : null
+
     const options = {
       hostname: u.hostname,
       port: u.port || 443,
       path: u.pathname + u.search,
       method,
-      headers,
-      pfx: Buffer.from(pfx_base64, 'base64'),
+      headers: {
+        ...headers,
+        ...(bodyBuffer ? { 'Content-Length': bodyBuffer.length } : {}),
+      },
+      pfx: pfxBuffer,
       passphrase: pfx_senha,
       rejectUnauthorized: true,
+      minVersion: 'TLSv1.2',
+      maxVersion: 'TLSv1.3',
     }
 
     const req = https.request(options, (res) => {
@@ -46,8 +54,8 @@ function httpsRequest(urlStr, { method = 'GET', headers = {}, body, pfx_base64, 
       }))
     })
 
-    req.on('error', reject)
-    if (body) req.write(body)
+    req.on('error', (e) => reject(new Error(`${e.message} | host: ${u.hostname} | path: ${u.pathname}`)))
+    if (bodyBuffer) req.write(bodyBuffer)
     req.end()
   })
 }
