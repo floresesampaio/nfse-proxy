@@ -1,7 +1,7 @@
 import 'dotenv/config'
 import express from 'express'
 import https from 'https'
-import fetch from 'node-fetch'
+import { URL } from 'url'
 
 const app = express()
 app.use(express.json({ limit: '10mb' }))
@@ -17,32 +17,54 @@ app.use((req, res, next) => {
 
 app.get('/health', (_req, res) => res.json({ ok: true }))
 
-function buildAgent(pfxBase64, senha) {
-  return new https.Agent({
-    pfx: Buffer.from(pfxBase64, 'base64'),
-    passphrase: senha,
-    rejectUnauthorized: true,
-  })
-}
-
 function baseUrl(ambiente) {
   return ambiente === 'producao'
     ? 'https://sefin.nfse.gov.br/SefinNacional'
     : 'https://sefin.producaorestrita.nfse.gov.br/SefinNacional'
 }
 
+function httpsRequest(urlStr, { method = 'GET', headers = {}, body, pfx_base64, pfx_senha }) {
+  return new Promise((resolve, reject) => {
+    const u = new URL(urlStr)
+    const options = {
+      hostname: u.hostname,
+      port: u.port || 443,
+      path: u.pathname + u.search,
+      method,
+      headers,
+      pfx: Buffer.from(pfx_base64, 'base64'),
+      passphrase: pfx_senha,
+      rejectUnauthorized: true,
+    }
+
+    const req = https.request(options, (res) => {
+      const chunks = []
+      res.on('data', chunk => chunks.push(chunk))
+      res.on('end', () => resolve({
+        status: res.statusCode,
+        headers: res.headers,
+        body: Buffer.concat(chunks),
+      }))
+    })
+
+    req.on('error', reject)
+    if (body) req.write(body)
+    req.end()
+  })
+}
+
 // Enviar DPS
 app.post('/dps', async (req, res) => {
   const { xml_dps, pfx_base64, pfx_senha, ambiente } = req.body
   try {
-    const agent = buildAgent(pfx_base64, pfx_senha)
-    const r = await fetch(`${baseUrl(ambiente)}/nfse/dps`, {
+    const r = await httpsRequest(`${baseUrl(ambiente)}/nfse/dps`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/xml' },
       body: xml_dps,
-      agent,
+      pfx_base64,
+      pfx_senha,
     })
-    res.status(r.status).send(await r.text())
+    res.status(r.status).send(r.body)
   } catch (e) {
     res.status(500).json({ error: e.message })
   }
@@ -52,9 +74,11 @@ app.post('/dps', async (req, res) => {
 app.get('/dps/:idDPS', async (req, res) => {
   const { pfx_base64, pfx_senha, ambiente } = req.query
   try {
-    const agent = buildAgent(pfx_base64, pfx_senha)
-    const r = await fetch(`${baseUrl(ambiente)}/nfse/dps/${req.params.idDPS}`, { agent })
-    res.status(r.status).send(await r.text())
+    const r = await httpsRequest(`${baseUrl(ambiente)}/nfse/dps/${req.params.idDPS}`, {
+      pfx_base64,
+      pfx_senha,
+    })
+    res.status(r.status).send(r.body)
   } catch (e) {
     res.status(500).json({ error: e.message })
   }
@@ -64,9 +88,11 @@ app.get('/dps/:idDPS', async (req, res) => {
 app.get('/nfse/:chave', async (req, res) => {
   const { pfx_base64, pfx_senha, ambiente } = req.query
   try {
-    const agent = buildAgent(pfx_base64, pfx_senha)
-    const r = await fetch(`${baseUrl(ambiente)}/nfse/${req.params.chave}`, { agent })
-    res.status(r.status).send(await r.text())
+    const r = await httpsRequest(`${baseUrl(ambiente)}/nfse/${req.params.chave}`, {
+      pfx_base64,
+      pfx_senha,
+    })
+    res.status(r.status).send(r.body)
   } catch (e) {
     res.status(500).json({ error: e.message })
   }
@@ -76,14 +102,14 @@ app.get('/nfse/:chave', async (req, res) => {
 app.post('/evento', async (req, res) => {
   const { xml_evento, pfx_base64, pfx_senha, ambiente } = req.body
   try {
-    const agent = buildAgent(pfx_base64, pfx_senha)
-    const r = await fetch(`${baseUrl(ambiente)}/nfse/evento`, {
+    const r = await httpsRequest(`${baseUrl(ambiente)}/nfse/evento`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/xml' },
       body: xml_evento,
-      agent,
+      pfx_base64,
+      pfx_senha,
     })
-    res.status(r.status).send(await r.text())
+    res.status(r.status).send(r.body)
   } catch (e) {
     res.status(500).json({ error: e.message })
   }
@@ -93,11 +119,11 @@ app.post('/evento', async (req, res) => {
 app.get('/danfse/:chave', async (req, res) => {
   const { pfx_base64, pfx_senha, ambiente } = req.query
   try {
-    const agent = buildAgent(pfx_base64, pfx_senha)
-    const r = await fetch(`${baseUrl(ambiente)}/danfse/${req.params.chave}`, { agent })
-    res.status(r.status)
-      .type('application/pdf')
-      .send(Buffer.from(await r.arrayBuffer()))
+    const r = await httpsRequest(`${baseUrl(ambiente)}/danfse/${req.params.chave}`, {
+      pfx_base64,
+      pfx_senha,
+    })
+    res.status(r.status).type('application/pdf').send(r.body)
   } catch (e) {
     res.status(500).json({ error: e.message })
   }
